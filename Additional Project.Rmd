@@ -1,0 +1,130 @@
+---
+title: "Additional project"
+author: "haoran"
+date: '2025-04-12'
+output: pdf_document
+---
+
+```{r warning=FALSE}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(VIM)
+library(ggplot2)
+library(mvtnorm)
+```
+
+```{r}
+data <- read_excel("interexp.dat.xlsx")
+str(data)
+```
+
+```{r}
+#count NA value
+summary(data)
+colSums(is.na(data))
+```
+
+```{r}
+aggr_plot <- aggr(data, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE,
+                  labels=names(data), cex.axis=.7, gap=3, 
+                  ylab=c("Missing data","Pattern"))
+```
+
+```{r}
+complete <- data %>% filter(!is.na(yA) & !is.na(yB))
+
+png("before.png", width = 800, height = 600)
+ggplot(complete, aes(x = yA, y = yB)) +
+  geom_point(color = "steelblue", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred", linetype = "dashed") +
+  labs(title = "Stimulus A vs B (Complete Cases)",
+       x = "Stimulus A",
+       y = "Stimulus B") +
+  theme_minimal()
+dev.off()
+```
+
+```{r}
+df_em <- data
+tol <- 1e-6
+max_iter <- 100
+n <- nrow(df_em)
+
+# initial parameter（Using complete case to estimate）
+complete <- df_em[complete.cases(df_em), ]
+mu <- colMeans(complete)
+Sigma <- cov(complete)
+
+# Store the index of missing positions
+missing_A <- which(is.na(df_em$yA) & !is.na(df_em$yB))
+missing_B <- which(!is.na(df_em$yA) & is.na(df_em$yB))
+
+for (iter in 1:max_iter) {
+  mu_old <- mu
+  Sigma_old <- Sigma
+  
+  # E-step: 
+  # 1. yA missing
+  for (i in missing_A) {
+    yB_i <- df_em$yB[i]
+    muA <- mu[1]
+    muB <- mu[2]
+    sAA <- Sigma[1,1]
+    sBB <- Sigma[2,2]
+    sAB <- Sigma[1,2]
+    
+    # Conditional expectation and variance
+    cond_mu <- muA + sAB/sBB * (yB_i - muB)
+    df_em$yA[i] <- cond_mu
+  }
+  
+  # 2. yB missing
+  for (i in missing_B) {
+    yA_i <- df_em$yA[i]
+    muA <- mu[1]
+    muB <- mu[2]
+    sAA <- Sigma[1,1]
+    sBB <- Sigma[2,2]
+    sAB <- Sigma[1,2]
+    
+    cond_mu <- muB + sAB/sAA * (yA_i - muA)
+    df_em$yB[i] <- cond_mu
+  }
+  
+  # M-step: Calculate the new mean and covariance matrix
+  mu <- colMeans(df_em)
+  Sigma <- cov(df_em)
+  
+  # Convergence
+  if (sum(abs(mu - mu_old)) < tol & sum(abs(Sigma - Sigma_old)) < tol) {
+    cat("Converged at iteration:", iter, "\n")
+    break
+  }
+}
+```
+
+```{r}
+mu
+Sigma
+```
+
+```{r}
+#after imputation
+png("after.png", width = 800, height = 600)
+ggplot(df_em, aes(x = yA, y = yB)) +
+  geom_point(color = "darkgreen", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "dashed") +
+  labs(title = "Stimulus A vs B (After EM Imputation)",
+       x = "Stimulus A",
+       y = "Stimulus B") +
+  theme_minimal()
+dev.off()
+```
+
+```{r}
+
+t.test(df_em$yA, df_em$yB, paired = TRUE)
+
+```
+
